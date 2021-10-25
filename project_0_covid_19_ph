@@ -1,0 +1,412 @@
+---
+title: "Analysis of the COVID-19 Pandemic in the Philippines"
+author: "Abe Ceasar Perez"
+date: "September 19, 2021"
+output: 
+  pdf_document:
+      latex_engine : xelatex
+---
+
+## Introduction
+
+The COVID-19 Pandemic is one of the most biggest challenges faced by the world in the past year. As the outbreak of the virus has been confirmed by the WHO, the world has turned to preventive measures such as lockdowns, proper hygiene and sanitation, and crowd control in an effort to prevent the further spread of the disease that has yet to be understood. 
+
+One of the countries badly hit by the pandemic is the Philippines. Located in Southeast Asia, this archipelago is known to have a population of at least 100 million people with an economy that is still far from developed countries such as the United States or Japan. The first known cases of COVID-19 in the country started on January 22, 2020 and as cases rose to more than 500, the government officially declared a lockdown of the whole country on March 2020. Ever since that date, the country has been dubbed as having one of the longest COVID-19 lockdowns (See, 2021) as the government continues to put more emphasis on maintaining crowd control and limiting travel rather than improving testing capacity and building more hospitals in order to accommodate the ever-growing number of patients per day (Health and Human Rights Crisis in the Philippines, 2021).
+
+Just recently, the current Philippine president has stated threats of resignation if the public can name countries that had prepared for the pandemic (Romero, 2021). While the pronouncement was intended to pacify the critics and justify the pandemic response, that alone did not give any solutions moving forward. Infections still continued to rise and people were becoming uncertain of their livelihoods due to the effect bought by the pandemic. In order for the country to fully recover from this pandemic, it is important to revisit the numbers brought by the pandemic and propose solutions moving forward.
+
+## Objectives
+
+The goal of this analysis is to understand the current situation of the Philippines in their fight against COVID-19 from March 1, 2020 to September 9, 2021. Additionally, the research aims to:
+
+1. Describe the progression of the infection using trends,
+2. Propose a metric for comparing the Philippines to the rest of the countries, and
+3. Provide the top benchmark countries based on the country's attributes
+
+## Methodology
+
+### A. The dataset
+
+The dataset is obtained from <https://github.com/owid/covid-19-data/tree/master/public/data> by the Our World in Data team where various data centers from the John Hopkins University, European Centre for Disease Prevention and Control, etc. have been linked into a single large dataset.
+
+```{r load_dataset, echo=FALSE, warning=FALSE}
+setwd("C:\\Users\\Abe\\Desktop\\Dataquest modules\\Data Analyst in R")
+
+suppressPackageStartupMessages(library(tidyverse))
+suppressPackageStartupMessages(library(knitr))
+suppressPackageStartupMessages(library(kableExtra))
+suppressPackageStartupMessages(library(purrr))
+suppressPackageStartupMessages(library(lubridate))
+covid_data <- read_csv("owid-covid-data.csv")
+```
+
+The dataset is known to have more than 100,000 data points for each of the 62 variables ranging from demographics and COVID statistics to country classification by the United nations. The definitions of each variable is also found in the website above.
+
+### B. Data observation
+
+The user-defined function "observe_data()" is created in order to inspect the scope of the data before moving on to the data cleaning process. This includes the relevant processes such as inspection the column variables, uniqueness of the character values, and determination of the number of missing values for each variable.
+
+```{r observe_dataset, echo=FALSE}
+observe_data <- function(data){
+  coltypes <- tibble(columns = colnames(data), data_type = unlist(map(data, typeof)))
+  character_data <- data %>% select(where(is.character))
+  unique_vals <- map(character_data, unique)
+  missing_obs_count <- tibble(columns = colnames(data), missing_count = colSums(is.na(data)))
+  head_data <- head(data)
+  display_results <- list(`Column types` = coltypes,
+                  `Unique character values` = unique_vals,
+                  `No. of missing observations` = missing_obs_count,
+                  `Data preview` = head_data)
+  return(display_results)
+}
+
+```
+
+```{r observe_dataset1, echo=TRUE}
+initial_results <- observe_data(covid_data)
+```
+
+Looking at each of the variables in the respective columns, it is safe to assume that most of the variables are in their appropriate data type with the exception of the date column, which can still be converted into date for analyzing time periods.
+
+```{r columns, echo=FALSE}
+type_columns <- data.frame(head(initial_results$`Column types`,15))
+colnames(type_columns) <- c("Column", "Data type")
+kable(type_columns,caption = "Column Data Types", booktabs=T) %>% kable_styling(latex_options = "hold_position") %>% add_footnote("Note: Displays only the first 15 rows",notation = "none")
+```
+
+As for the character variables, it is observed that country, continental, and global data is combined into one dataset. This is supported by the fact that continent names (Asia, etc.) appeared in the location along with the country names and that the unique continent names contain an NA value which represents other aggregated data points (i.e. world data). Since this analysis involves on a country level, continental data will be used in the latter part of the analysis.
+
+```{r unique_chars, echo=FALSE}
+continents <- data.frame(initial_results$`Unique character values`$continent)
+iso_codes <- data.frame(head(initial_results$`Unique character values`$iso_code, 7))
+countries <- data.frame(head(initial_results$`Unique character values`$location, 7))
+colnames(continents) <- "Continents"
+colnames(iso_codes) <- "ISO Codes"
+colnames(countries) <- "Countries"
+kable(cbind(continents, iso_codes, countries), caption = "Unique Names", booktabs=T) %>% kable_styling(latex_options = "hold_position") %>% add_footnote("Note: Displays only the first seven rows for ISO Code and Country", notation = "none")
+```
+
+Lastly, the number of values for each variables was determined. Based on the number of variables missing, only iso_code, location, and date were complete in the dataset. As for the rest of the variables, it was observed that most of the missing observations in this datasets are numeric values, mainly due to incomplete data provided by various countries and missing data from the aggregated groups such as international or world. For this analysis, missing numerical values will be supplied with zeroes in order to visualize the movement of trends for missing periods. For character variables, missing values will remain as is.
+
+```{r missing_obs, echo=FALSE}
+kable(head(initial_results$`No. of missing observations`,10), caption = "Missing variable count", booktabs=T) %>% kable_styling(latex_options = "hold_position") %>% add_footnote("Note: Displays only the first ten rows", notation="none")
+```
+
+### C. Data Selection and Cleaning
+
+Out of the 62 variables in the dataset, only 34 are selected for this study. These variables contain unique information for visualizing trends, providing country information, and creating metrics for comparing countries.
+
+```{r select_obs, echo=TRUE}
+covid_analysis <- covid_data %>% select(c(1:10,17,26:27,30,32,35,39:40,46:61))
+```
+
+\newpage
+
+```{r select_obs1, echo=FALSE}
+columns <- data.frame(colnames(covid_analysis))
+rows <- seq(1,nrow(columns),2)
+final_cols <- data.frame(cbind(columns[rows,],columns[-rows,]))
+colnames(final_cols) <- c("Column","Column (continued)")
+kable(final_cols, caption = "Selected Columns", booktabs=T) %>% kable_styling(latex_options = "hold_position")
+```
+
+Afterwards the selection of variables, the dataset is then cleaned using the defined function, "clean_data" based on the initial findings made prior. The reason for the cleaning process being done after data selection is to ease up the runtime of the given function.
+
+```{r clean_obs, echo=FALSE}
+clean_data <- function(data){
+  character_data <- data %>% select(where(is.character))
+  numeric_data <- data %>% select(where(is.numeric))
+  other_data <- data %>% select(where(is.Date))
+  numeric_data[is.na(numeric_data)] = 0
+  cleaned_data <- cbind(character_data, other_data, numeric_data)
+  return(cleaned_data)
+}
+covid_analysis <- clean_data(covid_analysis)
+```
+
+### D. Generation of Data Subsets
+
+Data subsets are then generated in preparation for the analysis of this research. The function "generate_data_subsets()" contains the commands for generating subsets for a single country or the entire group of countries for a single time period based on the provided parameters.
+
+
+```{r subset_obs, echo=FALSE}
+generate_data_subsets <- function(data, subset_name, start_date, end_date){
+  if(subset_name == "By country")
+    final_data <- data %>% filter(!(is.na(continent)) & ymd(date) >= ymd(start_date) & ymd(date) <= ymd(end_date))
+  else
+    final_data <- data %>% filter(location==subset_name & ymd(date) >= ymd(start_date) & ymd(date) <= ymd(end_date))
+  return(final_data)
+}
+```
+
+```{r subset_obs1, echo=TRUE}
+data_per_country <- generate_data_subsets(covid_analysis, "By country", "2020-03-01","2021-09-01")
+ph_data <- generate_data_subsets(covid_analysis, "Philippines", "2020-03-01", "2021-09-01")
+```
+
+An aggregated dataset is also created for the data subset per country in order to summarize the information and performance of each country throughout the period. Imputation was also performed for this dataset to ensure the completeness of the analysis per country in the latter part. 
+
+Lastly, a new metric is created based on the positivity rate, fatality rate, and vaccination rate in order to compare the performance of each country. The aim of this metric is to understand which countries have better managed the pandemic. The following columns are created in order to determine the final metric used for comparing each country:
+
+1. Positivity rate ranking: 1 - being the country with the least positivity rate
+2. Fatality rate ranking: 1 - being the country with the least fatality rate
+3. Vaccination rate ranking: 1 - being the country with the highest vaccination rate
+
+These rankings are then averaged into a single value and ranked again from least to greatest in order to yield the performance ranking of each country during the period of the pandemic.
+
+```{r summarized_obs, echo=FALSE}
+generate_summarized_data <- function(data){
+
+  final_data <- data %>% group_by(continent,location) %>% summarize(`Total Infected Cases` = sum(new_cases),
+                                                                                           `Total Deaths` = sum(new_deaths),
+                                                                                           `Total Conducted Tests` = sum(new_tests),
+                                                                                           `Total Administered Vaccinations` = sum(new_vaccinations),
+                                                                                           `Stringency Index` = mean(stringency_index),
+                                                                                           `Population` = mean(population),
+                                                                                           `Population Density` = mean(population_density),
+                                                                                           `Median Age` = mean(median_age),
+                                                                                           `Proportion of Old Population (65-above)` = mean(aged_65_older),
+                                                                                           `GDP` = mean(gdp_per_capita),
+                                                                                           `Proportion of Heart-Risk Population` = mean(cardiovasc_death_rate),
+                                                                                           `Proportion of Diabetes-Risk Population` = mean(diabetes_prevalence),
+                                                                                           `Proportion of Male Smokers` = mean(male_smokers),
+                                                                                           `Proportion of Female Smokers` = mean(female_smokers),
+                                                                                           `Total Number of Handwashing Facilities` = mean(handwashing_facilities),
+                                                                                           `Life Expectancy` = mean(life_expectancy),
+                                                                                           `Human Development Index` = mean(human_development_index)
+                                                                                           )
+  missing_GDP <- final_data %>% filter(GDP == 0 | is.na(GDP)) %>% pull(location)
+  missing_popden <- final_data %>% filter(`Population Density`==0 | is.na(`Population Density`)) %>% pull(location)
+  missing_pop <- final_data %>% filter(Population == 0 | is.na(Population)) %>% pull(location)
+  missing_med_age <- final_data %>% filter(`Median Age` == 0 | is.na(`Median Age`)) %>% pull(location)
+  missing_life_ex <- final_data %>% filter(`Life Expectancy` == 0 | is.na(`Life Expectancy`)) %>% pull(location)
+  missing_hdi <- final_data %>% filter(`Human Development Index` == 0 | is.na(`Human Development Index`)) %>% pull(location)
+  
+  names(missing_GDP) <- c(12230,347,14942,2807,32747,40886,64269,92843,61280,
+                          89108,63492,181402,185829,21198,18405,22100,34246,
+                          8821,19698,54470,10094)
+  names(missing_pop) <- c(326000)
+  names(missing_popden) <- c(14,20,129,92,652,1002,929,924.49,162,
+                             64,48,74,6,11,110,82,0)
+  names(missing_med_age) <- c(49.9,37.3,46.2,37.2,35.5,44.3,43,39.9,30.5,43.7,
+                              55,46.9,0,35.7,43.6,40,37.2,40.5,34.9,33,34.8,
+                              0,42.7,34.6,38.3,23.7,21.5,27,33.9,39.3,24,
+                              26.6,34,0)
+  names(missing_life_ex) <- c(80, 82.6, 82, 72, 90)
+  names(missing_hdi) <- c(0.83,0.285,0.922,0.887,0.916,0.95,0.961,0.985,0.849,
+                          0.985,0.787,0.956,0.961,0,0.865,0.908,0.981,0,
+                          0.945,0.888,0.811,0.839,0.821,0.702,0.873,0.829,
+                          0,0.721,0,0.794,0,0.75,0.711,0.763,0.933)
+  
+  final_data <- final_data %>% mutate(`GDP` = if_else(`GDP` == 0, as.numeric(names(missing_GDP)[match(location, missing_GDP)]), `GDP`/2.18),
+                                      `Population Density` = if_else(`Population Density` == 0, as.numeric(names(missing_popden)[match(location, missing_popden)]), `Population Density`),
+                                      Population = if_else(Population == 0, as.numeric(names(missing_pop)[match(location, missing_pop)]), Population),
+                                      `Median Age` = if_else(`Median Age` == 0, as.numeric(names(missing_med_age)[match(location, missing_med_age)]), `Median Age`),
+                                      `Life Expectancy` = if_else(`Life Expectancy` == 0, as.numeric(names(missing_life_ex)[match(location, missing_life_ex)]), `Life Expectancy`),
+                                      `Human Development Index` = if_else(`Human Development Index` == 0, as.numeric(names(missing_hdi)[match(location, missing_hdi)]), `Human Development Index`))
+  
+                                                      
+  final_data <- final_data %>% filter(!(`Total Conducted Tests`==0 & `Total Infected Cases` == 0 & `Total Deaths` == 0 & `Total Administered Vaccinations` == 0)) %>% mutate(`Overall Positivity Rate` = round(if_else(`Total Conducted Tests` != 0, `Total Infected Cases`/`Total Conducted Tests`, if_else(`Total Infected Cases` == 0, 0, `Total Infected Cases`/Population))*100,1),
+                                                                             `Overall Fatality Rate` = round(if_else(`Total Infected Cases` != 0, `Total Deaths`/`Total Infected Cases`, if_else(`Total Deaths` == 0, 0, `Total Deaths`/Population))*100,1),
+                                                                             `Overall Vaccination Rate` = round(if_else(`Population` != 0, `Total Administered Vaccinations`/`Population`, if_else(`Total Administered Vaccinations` == 0, 0, 1))*100,1),
+                                                                             `HDI Classification` = case_when(`Human Development Index` >= 0.8 ~ "Very High Human Development",
+                                                                                                              `Human Development Index` < 0.8 & `Human Development Index` >= 0.7 ~ "High Human Development",
+                                                                                                              `Human Development Index` < 0.7 & `Human Development Index` >= 0.55 ~ "Medium Human Development",
+                                                                                                              TRUE ~ "Low Human Development")) 
+  
+  arranged_countries_by_posit <- final_data %>% filter(`Overall Positivity Rate` <= 100) %>% arrange(`Overall Positivity Rate`) %>% pull(location)
+  arranged_countries_by_fata <- final_data %>% filter(`Overall Positivity Rate` <= 100) %>% arrange(`Overall Fatality Rate`) %>% pull(location)
+  arranged_countries_by_vacc <- final_data %>% filter(`Overall Positivity Rate` <= 100) %>% arrange(-`Overall Vaccination Rate`) %>% pull(location)
+  
+  final_data <- final_data %>% filter(`Overall Positivity Rate` <= 100) %>% mutate(`Positivity Rate Ranking` = match(location, arranged_countries_by_posit),
+                                      `Fatality Rate Ranking` = match(location, arranged_countries_by_fata),
+                                      `Vaccination Rate Ranking` = match(location, arranged_countries_by_vacc),
+                                      `Pandemic Performance Ranking` = (`Positivity Rate Ranking`+`Fatality Rate Ranking`+`Vaccination Rate Ranking`)/3)
+  
+  arranged_countries_overall <- final_data %>% arrange(`Pandemic Performance Ranking`) %>% pull(location)
+  
+  final_data <- final_data %>% mutate(`Pandemic Performance Ranking` = match(location, arranged_countries_overall)) %>% arrange(`Pandemic Performance Ranking`) %>% rename(Location = location, Continent = continent)
+  
+  return(final_data)
+}
+country_summary_data <- generate_summarized_data(data_per_country)
+
+kable(head(country_summary_data[,c(1:2, 27)], 10), caption = "Top 10 Countries based on Pandemic Management", booktabs=T) %>% kable_styling(latex_options = "hold_position") %>% add_footnote("Note: Displays only the first ten rows and first three columns of the whole dataset", notation="none")
+```
+
+## Analysis
+
+Based on the demographic profile, it is observed that the country has one of the highest populations in the world while having one of the lowest GDP, making it one of the poorest countries in the world. It also has an HDI of around 0.718 making it a country with High Human Development on life expectancy for health, education system, and the economic standard of living.
+
+```{r analysis_demo, echo=FALSE}
+generate_country_profile <- function(data, location_name){
+
+    demographics <- data %>% filter(Location==location_name) %>% select(c(2,1,8:12,18:19)) %>% t()
+    demographics <- tibble(Variables = rownames(demographics), Values = demographics)
+    
+    covid_statistics <- data %>% filter(Location==location_name) %>% select(c(2,1,8,7,3:6,20:22,27)) %>% t()
+    covid_statistics <- tibble(Variables = rownames(covid_statistics), Values = covid_statistics)
+    
+    vulnerability <- country_summary_data %>% filter(Location==location_name) %>% select(c(2,1,8,11,13:18)) %>% t()
+    vulnerability <- tibble(Variables = rownames(vulnerability), Values = vulnerability)
+    
+    covid_profile <- list(`Demographic Profile` = demographics,
+                          `Latest COVID Statistics` = covid_statistics,
+                          `COVID Vulnerability Statistics` = vulnerability)
+    return(covid_profile)
+
+}
+ph_profile <- generate_country_profile(country_summary_data, "Philippines")
+
+kable(ph_profile$`Demographic Profile`, caption = "Demographic Profile of the Philippines", booktabs=T) %>% kable_styling(latex_options = "hold_position")
+```
+
+In terms of commorbidity, the country also has a proportion of the population susceptible to the ongoing disease. While the proportion of the old is low in the coutnry, most of the recorded population at risk is found at smokers, wherein around 40.8% of the population who are smoking are found to be male. 
+
+```{r analysis_vul, echo=FALSE}
+kable(ph_profile$`COVID Vulnerability Statistics`, caption = "COVID Vulnerability Profile of the Philippines", booktabs=T) %>% kable_styling(latex_options = "hold_position")
+
+```
+
+\newpage
+
+The country is known to have been one of the most impacted by the pandemic as presented by the table below. It has boasted around 1 million confirmed cases with over 30,000 deaths in the given period despite having a high average stringency index of around 73. As of 2021, the country has administered around 1 million vaccinations which counts both first and second doses for vaccinated people and has yet to progress to the herd immunity by 2022. 
+
+Based on the proposed performance ranking of this research, the Philippines ranked 131st out of the 197 countries listed on the dataset after taking into consideration the positivity rate, fatality rate, and vaccination rate of each country.
+
+```{r analysis_covid_stats, echo=FALSE}
+kable(ph_profile$`Latest COVID Statistics`, caption = "COVID Statistics of the Philippines as of reporting date", booktabs=T) %>% kable_styling(latex_options = "hold_position")
+```
+
+To test whether or not the Philippines performed better than the majority of the listed countries, the Z-Test population proportion test was performed. The estimated proportion that is to be tested with the hypothesis is 66/197 wherein 66 is the number of countries that performed worse than the Philippines and 197 is the total number of countries. Based on the results of the test, the null hypothesis is not rejected, indicating that the country did not perform better than majority of the countries.
+
+\newpage
+
+```{r analysis_covid, echo=TRUE}
+prop.test(x = 66, n = 197, p = 0.5, correct = FALSE, alternative = "greater")
+```
+
+Looking into the historical trend of confirmed cases, it is observed that the country has undergone three waves of infections since the beginning of the pandemic - the first wave of infections came on Q3 of 2020, the second on Q2 of 2021, and the current wave on Q3 of 2021.
+
+```{r analysis_cases, echo=FALSE, fig.height=4, fig.width=7}
+generate_plots <- function(data){
+  
+    infections_plot <- data %>% ggplot(aes(x=date,y=new_cases_smoothed)) + 
+      geom_area(colour = "darkred", fill = "coral2") + 
+      labs(title=str_pad("Daily COVID-19 Infections Trend",50,side="left"),x="Date",y="New cases") + 
+      theme_classic()
+    
+    deaths_plot <- data %>% ggplot(aes(x=date,y=new_deaths_smoothed)) + 
+      geom_area(colour = "black", fill = "grey62") + 
+      labs(title=str_pad("Daily COVID-19 Deaths Trend",50,side="left"),x="Date", y="Deaths") + 
+      theme_classic()
+    
+    vaccinations_plot <- data %>% filter(ymd(date) > ymd("2021-01-01")) %>% ggplot(aes(x=date,y=new_vaccinations_smoothed/1000)) + 
+      geom_area(colour = "gray14", fill = "deepskyblue1") + 
+      labs(title=str_pad("Daily COVID-19 Vaccinations Trend",50,side="left"),x="Date",y="Vaccinations per 1000 people") + 
+      theme_classic()
+    
+    pivot_analysis <- pivot_longer(data[,c(19,6,9,11,12,15,17)],
+                                   cols = colnames(data[,c(19,6,9,11,12,15,17)])[2:7],
+                                   names_to = "variables",
+                                   values_to = "values")
+    
+    correlation_analysis <- pivot_analysis  %>% ggplot(aes(x=stringency_index, y=values)) + 
+      geom_point() + facet_wrap(vars(variables), scales = "free_y") + 
+      geom_smooth() + 
+      labs(title="Relationship bet. Stringency Index and other variables",x="Stringency Index",y="Values") + theme_bw()
+    
+    full_analysis <- list(`COVID-19 Infections Trend` = infections_plot,
+                          `COVID-19 Fatalities Trend` = deaths_plot,
+                          `COVID-19 Vaccinations Trend` = vaccinations_plot,
+                          `Stringency Correlation Analysis` = correlation_analysis)
+    return(full_analysis)
+}
+ph_analysis <- generate_plots(ph_data)
+ph_analysis$`COVID-19 Infections Trend`
+```
+
+In terms of fatalities, the country is averaging bet. 50-100 deaths per day from the start of the period until Q1 2021 and has since doubled since the start of Q2 with 100 - 200 fatalities daily over the course of the period. 
+
+```{r analysis_deaths, echo=FALSE, fig.height=4, fig.width=7}
+ph_analysis$`COVID-19 Fatalities Trend`
+```
+
+Vaccination for the country only started bet. March and April 2021 and has shown and increasing daily rate of vaccinations of up to 600,000 daily up to this date.
+
+```{r analysis_vaccines, echo=FALSE, fig.height=4, fig.width=7}
+ph_analysis$`COVID-19 Vaccinations Trend`
+```
+
+To determine the effectivity of the strict implementations of the country, the stringency index was compared against several variables to determine if there were any correlations or effect on the current pandemic response. Based on the correlations given below, strict government implementations seem to have no effect on the trend of new cases, deaths, etc. as most of the data points were only clustered between 60-80 stringency index, indicating the government's heavy reliance on the implemented measures. There is, however a noticeable relationship between stringency index and reproduction rate and the data indicates that as the country continued to implement strict measures, the reproduction rate still continued to rise, regardless of the government's efforts.
+
+```{r analysis_stringency, echo=FALSE, fig.height=3, fig.width=7}
+ph_analysis$`Stringency Correlation Analysis`
+```
+
+In order to come up with a blueprint in addressing the pandemic, top countries were selected based on the Philippines' attributes and challenges. These countries were investigated based on the overall positivity rate, fatality rate, and vaccination rate throughout the period.
+
+As for reference, here are the overall COVID statistics for the Philippines.
+
+```{r analysis_benchmarks, echo=FALSE}
+generate_country_benchmarks <- function(data){
+  philippines_stats <- data %>% filter(Location == "Philippines") %>% arrange(`Pandemic Performance Ranking`) %>% select(Continent, Location, `Overall Positivity Rate`, `Overall Fatality Rate`, `Overall Vaccination Rate`)
+  asian_countries <- data %>% filter(Continent == data$Continent[match("Philippines",data$Location)]) %>% arrange(`Pandemic Performance Ranking`) %>% select(Continent, Location, `Overall Positivity Rate`, `Overall Fatality Rate`, `Overall Vaccination Rate`) %>% head(10)
+  poorer_countries <- data %>% filter(GDP < data$GDP[match("Philippines",data$Location)]) %>% arrange(`Pandemic Performance Ranking`) %>% select(Continent, Location, `Overall Positivity Rate`, `Overall Fatality Rate`, `Overall Vaccination Rate`) %>% head(10)
+  more_populated_countries <- data %>% filter(Population > data$Population[match("Philippines",data$Location)]) %>% arrange(`Pandemic Performance Ranking`) %>% select(Continent, Location, `Overall Positivity Rate`, `Overall Fatality Rate`, `Overall Vaccination Rate`) %>% head(10)
+  stricter_countries <- data %>% filter(`Stringency Index` > data$`Stringency Index`[match("Philippines",data$Location)]) %>% arrange(`Pandemic Performance Ranking`) %>% select(Continent, Location, `Overall Positivity Rate`, `Overall Fatality Rate`, `Overall Vaccination Rate`) %>% head(10)
+  denser_countries <- data %>% filter(`Population Density` > data$`Population Density`[match("Philippines",data$Location)]) %>% arrange(`Pandemic Performance Ranking`) %>% select(Continent, Location, `Overall Positivity Rate`, `Overall Fatality Rate`, `Overall Vaccination Rate`) %>% head(10)
+  similar_living_status_countries <- data %>% filter(`HDI Classification` == data$`HDI Classification`[match("Philippines",data$Location)]) %>% arrange(`Pandemic Performance Ranking`) %>% select(Continent, Location, `Overall Positivity Rate`, `Overall Fatality Rate`, `Overall Vaccination Rate`) %>% head(10)
+  final_list_rankings <- list(`Philippine Rankings` = philippines_stats,
+                               `Asian countries` = asian_countries,
+                               `Countries poorer than PH` = poorer_countries,
+                               `Countries more populated than PH` = more_populated_countries,
+                               `Countries stricter than PH` = stricter_countries,
+                               `Countries denser than PH` = denser_countries,
+                               `Countries with HDI similar to PH` = similar_living_status_countries)
+  return(final_list_rankings)
+}
+ph_benchmarks <- generate_country_benchmarks(country_summary_data)
+
+kable(ph_benchmarks$`Philippine Rankings`, caption = "Overall COVID Statistics in the Philippines", booktabs=T) %>% kable_styling(latex_options = "hold_position", font_size = 7)
+```
+
+Looking into the top 10 Asian countries, it is observed that most of the countries do not only have less than 1% fatality rate but also have a vaccination rate of more than 100%, indicating that the vaccination drive became a priority for the respective countries.
+
+```{r analysis_asia, echo=FALSE}
+kable(ph_benchmarks$`Asian countries`, caption = "Top 10 Performing Countries in Asia", booktabs=T) %>% kable_styling(latex_options = "hold_position", font_size = 7)
+```
+
+For countries with less GDP than Philippines, it was observed that most of the metrics were less than 1% for all of the countries (positivity rate, fatality rate, and vaccination rate). This may indicate that the countries listed focused on improving the numbers without relying solely on vaccinations.
+
+```{r analysis_poor, echo=FALSE}
+kable(ph_benchmarks$`Countries poorer than PH`, caption = "Top 10 Performing Countries which have a GDP less than PH", booktabs=T) %>% kable_styling(latex_options = "hold_position", font_size = 7)
+```
+
+Lastly, countries that are more populated, stricter, denser, and similar in livelihood with the Philippines were also observed to have high overall vaccination rates despite high positivity and fatality rates. For denser countries, the focus was both on curbing the positivity/fatality rate and increasing overall vaccination rate.
+
+```{r analysis_popu, echo=FALSE}
+kable(ph_benchmarks$`Countries more populated than PH`, caption = "Top 10 Performing Countries which are more populated than PH", booktabs=T) %>% kable_styling(latex_options = "hold_position")
+kable(ph_benchmarks$`Countries stricter than PH`, caption = "Top 10 Performing Countries which are stricter than PH", booktabs=T) %>% kable_styling(latex_options = "hold_position")
+kable(ph_benchmarks$`Countries denser than PH`, caption = "Top 10 Performing Countries which are denser than PH", booktabs=T) %>% kable_styling(latex_options = "hold_position")
+kable(ph_benchmarks$`Countries with HDI similar to PH`, caption = "Top 10 Performing Countries which have the same HDI as PH", booktabs=T) %>% kable_styling(latex_options = "hold_position", font_size = 7)
+```
+
+\newpage
+
+## Conclusions and Recommendations
+
+The aim of this analysis is to be able to understand the situation of the Philippines in the period of the pandemic and how the current solutions can be further improved. Based on the results above, there is enough evidence to say that the country is lagging behind in terms of the pandemic response and that the solutions that the government is implementing is proving to be ineffective and that no improvement has been made even after one year has passed. It is, thus, recommended by the researcher to look into the successes of countries with attributes and challenges similar to the Philippines by focusing more on vaccination campaigns and curbing the positivity and fatality rates in order for the country to get recover from the pandemic.
+
+## References
+
+Health and Human Rights Crisis in the Philippines, one year into pandemic. Amnesty International. (2021, August 17). Retrieved October 25, 2021, from https://www.amnesty.org/en/latest/press-release/2021/04/philippines-faces-health-human-rights-crisis-covid/. 
+
+Romero, A. (2021, August 31). Duterte: Name a country prepared for covid-19, I'll resign. Philstar.com. Retrieved October 25, 2021, from https://www.philstar.com/headlines/2021/09/01/2123957/duterte-name-country-prepared-covid-19-ill-resign. 
+
+See, A. B. (2021, March 15). Inside one of the world's longest COVID-19 lockdowns. Time. Retrieved October 25, 2021, from https://time.com/5945616/covid-philippines-pandemic-lockdown/. 
+
+
+
+
+
